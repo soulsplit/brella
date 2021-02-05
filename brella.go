@@ -143,12 +143,11 @@ func addHoldings(holdings [][]string, currName string, amount float64, price int
 
 func getAPIHandle() goex.API {
 	credentials := getCredentials()
-	fmt.Println(credentials)
 
 	apiGoex := builder.DefaultAPIBuilder.
 		APIKey(credentials.APIKey).
 		APISecretkey(credentials.APISecretkey).
-		ApiPassphrase(credentials.ApiPassphrase).
+		ApiPassphrase(credentials.APIPassphrase).
 		Build(goex.KRAKEN)
 	return apiGoex
 }
@@ -156,7 +155,7 @@ func getAPIHandle() goex.API {
 type credentials struct {
 	APIKey        string ""
 	APISecretkey  string ""
-	ApiPassphrase string ""
+	APIPassphrase string ""
 }
 
 func getCredentials() credentials {
@@ -177,8 +176,8 @@ func getCredentials() credentials {
 				creds.APIKey = record[1]
 			} else if record[0] == "APISecretkey" {
 				creds.APISecretkey = record[1]
-			} else if record[0] == "ApiPassphrase" {
-				creds.ApiPassphrase = record[1]
+			} else if record[0] == "APIPassphrase" {
+				creds.APIPassphrase = record[1]
 			}
 		}
 	}
