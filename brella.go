@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -44,8 +45,17 @@ func (s matrix) Less(i, j int) bool {
 }
 
 func main() {
+	var currency string
+	var once bool
+
+	// flags declaration using flag package
+	flag.StringVar(&currency, "c", "EUR", "Specify the FIAT currency to take as a baseline. Default is euro")
+	flag.BoolVar(&once, "o", false, "Specify if the application should not keep running and give a new update every minute but run just once and quit. Default is false.")
+
+	flag.Parse() // after declaring flags we need to call it
+
 	apiGoex := getAPIHandle()
-	var FIAT = goex.EUR
+	var FIAT = goex.Currency{Symbol: currency, Desc: ""}
 
 	for {
 		log.Println(fmt.Sprintf("Getting new data from %s", apiGoex.GetExchangeName()))
@@ -65,6 +75,9 @@ func main() {
 		}
 
 		printTable(FIAT, holdings, sum)
+		if once {
+			break
+		}
 		time.Sleep(60 * time.Second)
 		fmt.Println()
 	}
