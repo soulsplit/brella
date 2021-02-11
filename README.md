@@ -64,7 +64,9 @@ Usage of ./brella:
   -f int
         Specify the frequency in seconds how often the exchange API shpuld be contacted and print print the table. (default 360)
   -nolog
-        Specify if the application should NOT write out a log.
+        Specify if the application should NOT write out the stats log file.
   -o    Specify if the application should NOT keep running and give a new update based on the frequency but run just once and quit. Frequency setting will be ignored.
+  -stats string
+        Specify the location where the stats log file should be written to. (default "~/stats.txt")
   -v    Specify if the application should print the version and quit.
   ```
