@@ -47,9 +47,12 @@ func (s matrix) Less(i, j int) bool {
 	return s[i][0] < s[j][0]
 }
 
-// Give back the current version
+// Version is set
+const Version string = "0.0.2"
+
+// Print current version
 func getVersion() {
-	fmt.Println("0.0.2")
+	fmt.Println(Version)
 }
 
 // Cleans up the names that come from exchange APIs to make them conform, for example with ticker requests
@@ -217,7 +220,6 @@ func colorize(color string, content string) []string {
 		setting = string(colorReset)
 	}
 	return []string{setting, content, string(colorReset)}
-
 }
 
 // add data to the map that holds all values from the current session
@@ -276,14 +278,14 @@ func getCredentials() credentials {
 }
 
 // write out a csv style log file that can be used to do further computation on, like in spreadsheet software
-func writeStats(ts string, vmap valuesMap) {
+func writeStats(ts string, vmap valuesMap, statsFileLocation string) {
 	//// content will look like this
 	// Timestamp					LTC	  XLM	ATOM
 	// 2021-02-08T19:08:07+01:00	10	  20	5
 	// 2021-02-08T19:09:09+01:00	52	  15	6
 
-	_, err := os.Stat("./stats.txt")
-	statsFile, _ := os.OpenFile("./stats.txt", os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	_, err := os.Stat(statsFileLocation)
+	statsFile, _ := os.OpenFile(statsFileLocation, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 
 	var line []string
 	writer := csv.NewWriter(statsFile)
@@ -301,8 +303,7 @@ func writeStats(ts string, vmap valuesMap) {
 		writer.Write(header)
 		writer.Flush()
 	} else {
-
-		statsFileReader, err := os.Open("./stats.txt")
+		statsFileReader, err := os.Open(statsFileLocation)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -319,7 +320,6 @@ func writeStats(ts string, vmap valuesMap) {
 
 	// write new header if the previous one looks different, like when a coin was sold completly for example
 	if strings.Join(header[1:], ",") != strings.Join(keys, ",") {
-		fmt.Println("found diff in headers")
 		newHeader := append([]string{"Timestamp"}, keys...)
 		writer.Write([]string{})
 		writer.Write(newHeader)
@@ -354,13 +354,15 @@ func main() {
 	var once bool
 	var version bool
 	var dontWriteLog bool
+	var statsFileLocation string
 
 	// flags declaration using flag package
 	flag.StringVar(&currency, "c", "EUR", "Specify the FIAT currency to take as a baseline.")
 	flag.IntVar(&frequency, "f", 360, "Specify the frequency in seconds how often the exchange API shpuld be contacted and print print the table.")
+	flag.StringVar(&statsFileLocation, "stats", "~/stats.txt", "Specify the location where the stats log file should be written to.")
 	flag.BoolVar(&once, "o", false, "Specify if the application should NOT keep running and give a new update based on the frequency but run just once and quit. Frequency setting will be ignored.")
 	flag.BoolVar(&version, "v", false, "Specify if the application should print the version and quit.")
-	flag.BoolVar(&dontWriteLog, "nolog", false, "Specify if the application should NOT write out a log.")
+	flag.BoolVar(&dontWriteLog, "nolog", false, "Specify if the application should NOT write out the stats log file.")
 
 	flag.Parse() // after declaring flags we need to call it
 	if version {
@@ -409,7 +411,7 @@ func main() {
 		}
 
 		if !dontWriteLog {
-			go writeStats(ts, vMap)
+			go writeStats(ts, vMap, statsFileLocation)
 		}
 
 		printTable(FIAT, holdings, sum)
@@ -426,5 +428,4 @@ func main() {
 		time.Sleep(time.Duration(frequency) * time.Second)
 		fmt.Println()
 	}
-
 }
