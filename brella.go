@@ -73,13 +73,13 @@ func estimateName(name string) string {
 }
 
 // extractHoldings() will pick out various parts of the user's balance data write a human-readable string
-func extractHoldings(subacc goex.SubAccount, FIAT goex.Currency, value float64, holdings [][]string, vMap valuesMap, ts string, apiGoex goex.API) (float64, [][]string) {
-	if subacc.Currency == FIAT {
+func extractHoldings(subacc goex.SubAccount, fiat goex.Currency, value float64, holdings [][]string, vMap valuesMap, ts string, apiGoex goex.API) (float64, [][]string) {
+	if subacc.Currency == fiat {
 		value = subacc.Amount
-		holdings = addHoldings(holdings, FIAT.String(), 0, subacc.Amount, value, vMap)
+		holdings = addHoldings(holdings, fiat.String(), 0, subacc.Amount, value, vMap)
 	} else {
 		currName := estimateName(subacc.Currency.String())
-		pair := getPair(currName, FIAT)
+		pair := getPair(currName, fiat)
 		price := getPrice(apiGoex, pair)
 		value = subacc.Amount * price.Last
 		holdings = addHoldings(holdings, currName, subacc.Amount, price, value, vMap)
@@ -89,14 +89,14 @@ func extractHoldings(subacc goex.SubAccount, FIAT goex.Currency, value float64, 
 }
 
 // printTable() creates a nice looking table that will have data of the user's balance as well as extra calculation
-func printTable(FIAT goex.Currency, holdings [][]string, sum float64) {
+func printTable(fiat goex.Currency, holdings [][]string, sum float64) {
 	sort.Sort(matrix(holdings))
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{
 		"Name",
 		"Amount",
-		fmt.Sprintf("Price (%s)", FIAT),
-		fmt.Sprintf("Value (%s)", FIAT),
+		fmt.Sprintf("Price (%s)", fiat),
+		fmt.Sprintf("Value (%s)", fiat),
 		"Start (%)",
 		"Last (%)"},
 	)
@@ -135,9 +135,9 @@ func getPrice(apiGoex goex.API, pair goex.CurrencyPair) *goex.Ticker {
 }
 
 // Given a cryptocurrency name and a fiat name, getPair() will return an object that can be used in many different functions
-func getPair(currName string, FIAT goex.Currency) goex.CurrencyPair {
+func getPair(currName string, fiat goex.Currency) goex.CurrencyPair {
 	var curr = goex.Currency{Symbol: currName, Desc: ""}
-	var pair = goex.CurrencyPair{CurrencyA: curr, CurrencyB: FIAT}
+	var pair = goex.CurrencyPair{CurrencyA: curr, CurrencyB: fiat}
 	return pair
 }
 
@@ -265,11 +265,12 @@ func getCredentials() credentials {
 			log.Fatal(err)
 		}
 		if len(record) == 2 {
-			if record[0] == "APIKey" {
+			switch record[0] {
+			case "APIKey":
 				creds.APIKey = record[1]
-			} else if record[0] == "APISecretkey" {
+			case "APISecretkey":
 				creds.APISecretkey = record[1]
-			} else if record[0] == "APIPassphrase" {
+			case "APIPassphrase":
 				creds.APIPassphrase = record[1]
 			}
 		}
@@ -279,10 +280,10 @@ func getCredentials() credentials {
 
 // write out a csv style log file that can be used to do further computation on, like in spreadsheet software
 func writeStats(ts string, vmap valuesMap, statsFileLocation string) {
-	//// content will look like this
-	// Timestamp					LTC	  XLM	ATOM
-	// 2021-02-08T19:08:07+01:00	10	  20	5
-	// 2021-02-08T19:09:09+01:00	52	  15	6
+	// content will look like this:
+	// Timestamp					ATOM	LTC	 	XLM
+	// 2021-02-08T19:08:07+01:00	  10	 20		  5
+	// 2021-02-08T19:09:09+01:00	  52	 15		  6
 
 	_, err := os.Stat(statsFileLocation)
 	statsFile, _ := os.OpenFile(statsFileLocation, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
