@@ -13,10 +13,13 @@ import (
 	"strings"
 	"time"
 
-	goex "github.com/nntaoli-project/goex"
-	"github.com/nntaoli-project/goex/builder"
 	"github.com/olekukonko/tablewriter"
+
+	"github.com/soulsplit/goex"
+	"github.com/soulsplit/goex/builder"
 )
+
+var apiGoex goex.API = getAPIHandle()
 
 type matrix [][]string
 
@@ -30,7 +33,65 @@ type history struct {
 	value    []float64
 }
 
+// map currency to a list of values
 type valuesMap map[string][]float64
+
+// map currency to a list of open orders
+type openOrdersMap map[string][]openOrders
+
+type openOrders struct {
+	currency  string
+	value     float64
+	orderID   string
+	amount    float64
+	orderType goex.OrderType
+}
+
+type dataItem struct {
+	currName         string
+	price            float64
+	value            float64
+	amount           float64
+	changeSinceStart string
+	changeSinceLast  string
+}
+
+func (exData *exchangeData) toRows() [][]string {
+	var formatted [][]string
+	for _, item := range exData.items {
+		formatted = append(formatted, []string{
+			item.currName,
+			strconv.FormatFloat(item.amount, 'f', 2, 64),
+			strconv.FormatFloat(item.price, 'f', 2, 64),
+			strconv.FormatFloat(item.value, 'f', 2, 64),
+			item.changeSinceStart,
+			item.changeSinceLast})
+	}
+	sort.Sort(matrix(formatted))
+	return formatted
+}
+
+func (odMap *openOrdersMap) toRows() [][]string {
+	var formatted [][]string
+	for _, orders := range *odMap {
+		for _, item := range orders {
+			formatted = append(formatted, []string{
+				item.currency,
+				strconv.FormatFloat(item.amount, 'f', 2, 64),
+				strconv.FormatFloat(item.value, 'f', 2, 64),
+				item.orderID})
+		}
+	}
+	sort.Sort(matrix(formatted))
+	return formatted
+}
+
+type exchangeData struct {
+	items    []dataItem
+	exchange string
+	sum      float64
+	fiat     goex.Currency
+}
 
 // Len() supports the sorting algorithm by providing the length of the array
 func (s matrix) Len() int {
@@ -72,25 +133,46 @@ func estimateName(name string) string {
 	return newName
 }
 
-// extractHoldings() will pick out various parts of the user's balance data write a human-readable string
-func extractHoldings(subacc goex.SubAccount, fiat goex.Currency, value float64, holdings [][]string, vMap valuesMap, ts string, apiGoex goex.API) (float64, [][]string) {
-	if subacc.Currency == fiat {
-		value = subacc.Amount
-		holdings = addHoldings(holdings, fiat.String(), 0, subacc.Amount, value, vMap)
-	} else {
-		currName := estimateName(subacc.Currency.String())
-		pair := getPair(currName, fiat)
-		price := getPrice(apiGoex, pair)
-		value = subacc.Amount * price.Last
-		holdings = addHoldings(holdings, currName, subacc.Amount, price, value, vMap)
+// getOneOrder
+// func getOrder(fiat goex.Currency) {
+// 	order, _ := apiGoex.GetOneOrder("OW76XK-VLZ3C-WD4LBC", getPair("GNO", fiat))
+// 	fmt.Printf("%#v", order)
+// }
 
+func (odMap openOrdersMap) getOpenOrders(fiat goex.Currency) {
+	// the currencyPair passed here is not evaluated for kraken. This call will get all open orders.
+	openOrders, _ := apiGoex.GetUnfinishOrders(getPair("BTC", fiat))
+	for _, order := range openOrders {
+		odMap.storeOrders(order)
 	}
-	return value, holdings
 }
 
-// printTable() creates a nice looking table that will have data of the user's balance as well as extra calculation
-func printTable(fiat goex.Currency, holdings [][]string, sum float64) {
-	sort.Sort(matrix(holdings))
+// extractHoldings() will pick out various parts of the user's balance data write a human-readable string
+func (exData *exchangeData) extractHoldings(acc goex.Account, fiat goex.Currency, vMap valuesMap, ts string) {
+	var value float64
+	for _, subacc := range acc.SubAccounts {
+		// skip small amounts, skip euro amount, skip redundant XBT as BTC is already reported for Bitcoin
+		if subacc.Amount < 0.001 ||
+			subacc.Currency == goex.XBT {
+			continue
+		}
+		if subacc.Currency == fiat {
+			value = subacc.Amount
+			exData.addHoldings(fiat.String(), 0, subacc.Amount, value, vMap)
+		} else {
+			currName := estimateName(subacc.Currency.String())
+			pair := getPair(currName, fiat)
+			price := getPrice(pair)
+			value = subacc.Amount * price.Last
+			exData.addHoldings(currName, subacc.Amount, price, value, vMap)
+		}
+		exData.sum += value
+	}
+}
+
+// printHoldingsTable() creates a nice looking table that will have data of the user's balance as well as extra calculation
+func printHoldingsTable(fiat goex.Currency, exData exchangeData) {
+	// sort.Sort(matrix(exData.items))
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{
 		"Name",
@@ -109,22 +191,49 @@ func printTable(fiat goex.Currency, holdings [][]string, sum float64) {
 		tablewriter.ALIGN_RIGHT})
 
 	table.SetFooter([]string{
-		fmt.Sprintf("∑ %d", len(holdings)),
+		fmt.Sprintf("∑ %d", len(exData.items)),
 		" ",
 		" ",
-		fmt.Sprintf("%.2f", sum),
+		fmt.Sprintf("%.2f", exData.sum),
 		" ",
 		" "})
 
 	table.SetFooterAlignment(tablewriter.ALIGN_RIGHT)
 
 	table.SetBorder(false)
-	table.AppendBulk(holdings)
+	table.AppendBulk(exData.toRows())
+	table.Render()
+}
+
+func printOrdersTable(odMap openOrdersMap) {
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{
+		"Name",
+		"Amount",
+		"Value",
+		"OrderID"},
+	)
+	table.SetColumnAlignment([]int{
+		tablewriter.ALIGN_DEFAULT,
+		tablewriter.ALIGN_DEFAULT,
+		tablewriter.ALIGN_DEFAULT,
+		tablewriter.ALIGN_DEFAULT})
+
+	table.SetFooter([]string{
+		fmt.Sprintf("∑ %d", len(odMap)),
+		" ",
+		" ",
+		" "})
+
+	table.SetFooterAlignment(tablewriter.ALIGN_RIGHT)
+
+	table.SetBorder(false)
+	table.AppendBulk(odMap.toRows())
 	table.Render()
 }
 
 // Read the current price of a given currency pair like ETHEUR
-func getPrice(apiGoex goex.API, pair goex.CurrencyPair) *goex.Ticker {
+func getPrice(pair goex.CurrencyPair) *goex.Ticker {
 	price, err := apiGoex.GetTicker(pair)
 
 	if err != nil {
@@ -142,17 +251,17 @@ func getPair(currName string, fiat goex.Currency) goex.CurrencyPair {
 }
 
 // addHoldings() will extend the data take from the balance with a new record
-func addHoldings(holdings [][]string, currName string, amount float64, price interface{}, value float64, vMap valuesMap) [][]string {
+func (exData *exchangeData) addHoldings(currName string, amount float64, price interface{}, value float64, vMap valuesMap) {
 	var priceF float64
 	var changeSinceLast []string
 
-	vMap = storeValues(currName, value, vMap)
+	vMap.storeValues(currName, value)
 	oldValue := vMap[currName][0]
-	changeSinceStart := getPercentage(value, oldValue, vMap, currName)
+	changeSinceStart := getPercentage(value, oldValue, currName)
 
 	if len(vMap[currName]) > 1 {
 		recentValue := vMap[currName][len(vMap[currName])-2]
-		changeSinceLast = getPercentage(value, recentValue, vMap, currName)
+		changeSinceLast = getPercentage(value, recentValue, currName)
 	}
 
 	switch v := price.(type) {
@@ -164,25 +273,26 @@ func addHoldings(holdings [][]string, currName string, amount float64, price int
 		fmt.Println("don't know the type")
 	}
 
-	holdings = append(holdings,
-		[]string{fmt.Sprintf("%s", currName),
-			fmt.Sprintf("%.4f", amount),
-			fmt.Sprintf("%.2f", priceF),
-			fmt.Sprintf("%.2f", value),
-			strings.Join(changeSinceStart, ""),
-			strings.Join(changeSinceLast, "")})
-	return holdings
+	var item dataItem
+	item.currName = currName
+	item.amount = amount
+	item.price = priceF
+	item.value = value
+	item.changeSinceStart = strings.Join(changeSinceStart, "")
+	item.changeSinceLast = strings.Join(changeSinceLast, "")
+	exData.items = append(exData.items, item)
+
 }
 
 // calculate percentage of the change in price of a cryptocurrency
-func getPercentage(value float64, oldValue float64, vMap valuesMap, currName string) []string {
-	change, setColor := calcChange(value, oldValue, vMap, currName)
+func getPercentage(value float64, oldValue float64, currName string) []string {
+	change, setColor := calcChange(value, oldValue, currName)
 	changeSinceValue := colorize(setColor, strconv.FormatFloat(change, 'f', 2, 64))
 	return changeSinceValue
 }
 
 // calculate the change in price of a cryptocurrency and determine if it is a positive or negative change. Set the color accordingly.
-func calcChange(value float64, oldValue float64, vMap valuesMap, currName string) (float64, string) {
+func calcChange(value float64, oldValue float64, currName string) (float64, string) {
 	change := (value/oldValue - 1) * 100
 	setColor := "green"
 	if change < 0.0 {
@@ -223,14 +333,30 @@ func colorize(color string, content string) []string {
 }
 
 // add data to the map that holds all values from the current session
-func storeValues(currName string, value float64, vMap valuesMap) valuesMap {
+func (vMap valuesMap) storeValues(currName string, value float64) {
 	_, ok := vMap[currName]
 	if !ok {
 		vMap[currName] = []float64{value}
 	} else {
 		vMap[currName] = append(vMap[currName], value)
 	}
-	return vMap
+}
+
+// add data to the map that holds all values from the current session
+func (odMap openOrdersMap) storeOrders(order goex.Order) {
+	currName := order.Currency.String()
+	_, ok := odMap[currName]
+	var orderSummary openOrders
+	orderSummary.amount = order.Amount
+	orderSummary.orderID = order.OrderID2
+	orderSummary.currency = order.Currency.String()
+	orderSummary.value = order.Price
+
+	if !ok {
+		odMap[currName] = []openOrders{orderSummary}
+	} else {
+		odMap[currName] = append(odMap[currName], orderSummary)
+	}
 }
 
 // extract only the last price that was recorded already of a given cryptocurrency
@@ -289,9 +415,8 @@ func writeStats(ts string, vmap valuesMap, statsFileLocation string) {
 	statsFile, _ := os.OpenFile(statsFileLocation, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 
 	var line []string
-	writer := csv.NewWriter(statsFile)
 	var header []string
-
+	writer := csv.NewWriter(statsFile)
 	keys := make([]string, 0, len(vmap))
 	for k := range vmap {
 		keys = append(keys, k)
@@ -336,93 +461,83 @@ func writeStats(ts string, vmap valuesMap, statsFileLocation string) {
 	defer statsFile.Close()
 }
 
-// func getHistory(){
-// historic, err := apiGoex.GetOrderHistorys(pair)
+func generatCliArgs(currency *string, frequency *int, statsFileLocation *string, once *bool, dontWriteLog *bool, showOrderMap *bool, dontShowHoldingsMap *bool) {
+	var version bool
 
-// if err != nil {
-// 	log.Print(err)
-// 	log.Printf(" %s", pair)
-// 	continue
-// }
-// for _, data := range historic {
-// 	log.Printf("%f", data.AvgPrice)
-// }
-// }
+	flag.StringVar(currency, "cur", "EUR", "Specify the FIAT currency to take as a baseline.")
+	flag.IntVar(frequency, "freq", 360, "Specify the frequency in seconds how often the exchange API shpuld be contacted and print print the table.")
+	flag.StringVar(statsFileLocation, "stats", "~/stats.txt", "Specify the location where the stats log file should be written to.")
+	flag.BoolVar(once, "once", false, "Specify if the application should NOT keep running and give a new update based on the frequency but run just once and quit. Frequency setting will be ignored.")
+	flag.BoolVar(showOrderMap, "orders", false, "Specify if the application should print the table of open orders.")
+	flag.BoolVar(dontShowHoldingsMap, "noholdings", false, "Specify if the application should NOT print the table of holdings.")
+	flag.BoolVar(&version, "version", false, "Specify if the application should print the version and quit.")
+	flag.BoolVar(dontWriteLog, "nolog", false, "Specify if the application should NOT write out the stats log file.")
+
+	flag.Parse()
+
+	if version {
+		getVersion()
+		os.Exit(0)
+	}
+}
+
+func retryOnError(err error) {
+	for errorCounter := 0; errorCounter <= 6; errorCounter++ {
+		if err != nil {
+			fmt.Print(err)
+			if errorCounter > 5 {
+				os.Exit(1)
+			}
+			time.Sleep(60 * time.Second)
+		}
+	}
+}
 
 func main() {
+
+	// will be filled with cli parameter
 	var currency string
 	var frequency int
 	var once bool
-	var version bool
 	var dontWriteLog bool
 	var statsFileLocation string
+	var showOrderMap bool
+	var dontShowHoldingsMap bool
 
-	// flags declaration using flag package
-	flag.StringVar(&currency, "c", "EUR", "Specify the FIAT currency to take as a baseline.")
-	flag.IntVar(&frequency, "f", 360, "Specify the frequency in seconds how often the exchange API shpuld be contacted and print print the table.")
-	flag.StringVar(&statsFileLocation, "stats", "~/stats.txt", "Specify the location where the stats log file should be written to.")
-	flag.BoolVar(&once, "o", false, "Specify if the application should NOT keep running and give a new update based on the frequency but run just once and quit. Frequency setting will be ignored.")
-	flag.BoolVar(&version, "v", false, "Specify if the application should print the version and quit.")
-	flag.BoolVar(&dontWriteLog, "nolog", false, "Specify if the application should NOT write out the stats log file.")
+	generatCliArgs(&currency, &frequency, &statsFileLocation, &once, &dontWriteLog, &showOrderMap, &dontShowHoldingsMap)
 
-	flag.Parse() // after declaring flags we need to call it
-	if version {
-		getVersion()
-		return
-	}
-
-	apiGoex := getAPIHandle()
-	var FIAT = goex.Currency{Symbol: currency, Desc: ""}
+	var fiat = goex.Currency{Symbol: currency, Desc: ""}
 	var vMap = make(valuesMap)
-	errorCounter := 0
 
 	for {
 		log.Println(fmt.Sprintf("Getting new data from %s", apiGoex.GetExchangeName()))
 		acc, err := apiGoex.GetAccount()
-		if err != nil {
-			// TODO: Needs to be made more granular but let's  assume that this error is just a temporary
-			// 4xx or 5xx. A retry with a delay will hopefully work. Give up after 5 consecutive errors,
-			errorCounter++
-
-			fmt.Print(err)
-			if errorCounter > 5 {
-				return
-			}
-
-			time.Sleep(60 * time.Second)
-			continue
-		}
-		errorCounter = 0
-
-		var holdings [][]string
-		var sum float64
-		var value float64
+		retryOnError(err)
 
 		ts := time.Now().Format(time.RFC3339)
-
-		for _, subacc := range acc.SubAccounts {
-			// skip small amounts, skip euro amount, skip redundant XBT as BTC is already reported for Bitcoin
-			if subacc.Amount < 0.001 ||
-				subacc.Currency == goex.XBT {
-				continue
-			}
-
-			value, holdings = extractHoldings(subacc, FIAT, value, holdings, vMap, ts, apiGoex)
-			sum += value
-		}
+		var exHoldings = new(exchangeData)
+		exHoldings.fiat = fiat
+		exHoldings.extractHoldings(*acc, fiat, vMap, ts)
 
 		if !dontWriteLog {
 			go writeStats(ts, vMap, statsFileLocation)
 		}
 
-		printTable(FIAT, holdings, sum)
-
+		if !dontShowHoldingsMap {
+			printHoldingsTable(fiat, *exHoldings)
+			fmt.Println()
+		}
+		if showOrderMap {
+			var orderMap = make(openOrdersMap)
+			orderMap.getOpenOrders(fiat)
+			printOrdersTable(*&orderMap)
+		}
 		if once {
 			break
 		}
 
 		if frequency < 60 {
-			fmt.Println("Frequency is too low. It will be set to 60seconds.")
+			log.Println(fmt.Sprintf("Frequency is too low. It will be set to 60seconds."))
 			frequency = 60
 		}
 
