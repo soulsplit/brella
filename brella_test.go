@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	goex "github.com/nntaoli-project/goex"
+	goex "github.com/soulsplit/goex"
 )
 
 func Test_getCredentials(t *testing.T) {
