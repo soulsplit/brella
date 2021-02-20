@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/manifoldco/promptui"
 	"github.com/olekukonko/tablewriter"
-
 	"github.com/soulsplit/goex"
 	"github.com/soulsplit/goex/builder"
 )
@@ -32,6 +32,8 @@ type history struct {
 	currName string ""
 	value    []float64
 }
+
+type values map[string]float64
 
 // map currency to a list of values
 type valuesMap map[string][]float64
@@ -61,7 +63,7 @@ func (exData *exchangeData) toRows() [][]string {
 	for _, item := range exData.items {
 		formatted = append(formatted, []string{
 			item.currName,
-			strconv.FormatFloat(item.amount, 'f', 2, 64),
+			strconv.FormatFloat(item.amount, 'f', 4, 64),
 			strconv.FormatFloat(item.price, 'f', 2, 64),
 			strconv.FormatFloat(item.value, 'f', 2, 64),
 			item.changeSinceStart,
@@ -77,8 +79,9 @@ func (odMap *openOrdersMap) toRows() [][]string {
 		for _, item := range orders {
 			formatted = append(formatted, []string{
 				item.currency,
-				strconv.FormatFloat(item.amount, 'f', 2, 64),
+				strconv.FormatFloat(item.amount, 'f', 4, 64),
 				strconv.FormatFloat(item.value, 'f', 2, 64),
+				strconv.FormatFloat(item.value*item.amount, 'f', 2, 64),
 				item.orderID})
 		}
 	}
@@ -132,12 +135,6 @@ func estimateName(name string) string {
 
 	return newName
 }
-
-// getOneOrder
-// func getOrder(fiat goex.Currency) {
-// 	order, _ := apiGoex.GetOneOrder("OW76XK-VLZ3C-WD4LBC", getPair("GNO", fiat))
-// 	fmt.Printf("%#v", order)
-// }
 
 func (odMap openOrdersMap) getOpenOrders(fiat goex.Currency) {
 	// the currencyPair passed here is not evaluated for kraken. This call will get all open orders.
@@ -194,7 +191,7 @@ func printHoldingsTable(fiat goex.Currency, exData exchangeData) {
 		fmt.Sprintf("∑ %d", len(exData.items)),
 		" ",
 		" ",
-		fmt.Sprintf("%.2f", exData.sum),
+		fmt.Sprintf("%.4f", exData.sum),
 		" ",
 		" "})
 
@@ -211,16 +208,19 @@ func printOrdersTable(odMap openOrdersMap) {
 		"Name",
 		"Amount",
 		"Value",
+		"Target",
 		"OrderID"},
 	)
 	table.SetColumnAlignment([]int{
 		tablewriter.ALIGN_DEFAULT,
-		tablewriter.ALIGN_DEFAULT,
-		tablewriter.ALIGN_DEFAULT,
+		tablewriter.ALIGN_RIGHT,
+		tablewriter.ALIGN_RIGHT,
+		tablewriter.ALIGN_RIGHT,
 		tablewriter.ALIGN_DEFAULT})
 
 	table.SetFooter([]string{
 		fmt.Sprintf("∑ %d", len(odMap)),
+		" ",
 		" ",
 		" ",
 		" "})
@@ -461,7 +461,7 @@ func writeStats(ts string, vmap valuesMap, statsFileLocation string) {
 	defer statsFile.Close()
 }
 
-func generatCliArgs(currency *string, frequency *int, statsFileLocation *string, once *bool, dontWriteLog *bool, showOrderMap *bool, dontShowHoldingsMap *bool) {
+func generatCliArgs(currency *string, frequency *int, statsFileLocation *string, once *bool, dontWriteLog *bool, showOrderMap *bool, dontShowHoldingsMap *bool, newOrder *bool, cancelOrder *bool) {
 	var version bool
 
 	flag.StringVar(currency, "cur", "EUR", "Specify the FIAT currency to take as a baseline.")
@@ -470,6 +470,8 @@ func generatCliArgs(currency *string, frequency *int, statsFileLocation *string,
 	flag.BoolVar(once, "once", false, "Specify if the application should NOT keep running and give a new update based on the frequency but run just once and quit. Frequency setting will be ignored.")
 	flag.BoolVar(showOrderMap, "orders", false, "Specify if the application should print the table of open orders.")
 	flag.BoolVar(dontShowHoldingsMap, "noholdings", false, "Specify if the application should NOT print the table of holdings.")
+	flag.BoolVar(newOrder, "neworder", false, "Test.")
+	flag.BoolVar(cancelOrder, "cancelorder", false, "Test.")
 	flag.BoolVar(&version, "version", false, "Specify if the application should print the version and quit.")
 	flag.BoolVar(dontWriteLog, "nolog", false, "Specify if the application should NOT write out the stats log file.")
 
@@ -478,18 +480,6 @@ func generatCliArgs(currency *string, frequency *int, statsFileLocation *string,
 	if version {
 		getVersion()
 		os.Exit(0)
-	}
-}
-
-func retryOnError(err error) {
-	for errorCounter := 0; errorCounter <= 6; errorCounter++ {
-		if err != nil {
-			fmt.Print(err)
-			if errorCounter > 5 {
-				os.Exit(1)
-			}
-			time.Sleep(60 * time.Second)
-		}
 	}
 }
 
@@ -503,10 +493,70 @@ func main() {
 	var statsFileLocation string
 	var showOrderMap bool
 	var dontShowHoldingsMap bool
+	var newOrder bool
+	var cancelOrder bool
 
-	generatCliArgs(&currency, &frequency, &statsFileLocation, &once, &dontWriteLog, &showOrderMap, &dontShowHoldingsMap)
+	generatCliArgs(&currency, &frequency, &statsFileLocation, &once, &dontWriteLog, &showOrderMap, &dontShowHoldingsMap, &newOrder, &cancelOrder)
 
 	var fiat = goex.Currency{Symbol: currency, Desc: ""}
+
+	if newOrder {
+		prompt := promptui.Select{
+			Label: "What's the type of order?",
+			Items: []string{"LimitBuy", "LimitSell", "MarketBuy", "MarketSell"},
+		}
+		_, orderType, err := prompt.Run()
+
+		if err != nil {
+			fmt.Printf("Prompt failed %v\n", err)
+			return
+		}
+
+		var firstCurr string
+		var secondCurr string
+		var amount string
+		var price string
+		fmt.Println("Which currency to buy?")
+		fmt.Scanln(&firstCurr)
+		fmt.Println("Which currency to spent?")
+		fmt.Scanln(&secondCurr)
+		fmt.Println("What amount?")
+		fmt.Scanln(&amount)
+		fmt.Println("At which price?")
+		fmt.Scanln(&price)
+
+		curr1 := goex.Currency{Symbol: firstCurr}
+		curr2 := goex.Currency{Symbol: secondCurr}
+		pair := goex.CurrencyPair{CurrencyA: curr1, CurrencyB: curr2}
+		createOrder(pair, amount, price, orderType)
+		os.Exit(0)
+	}
+
+	if cancelOrder {
+		var orderMap = make(openOrdersMap)
+		orderMap.getOpenOrders(fiat)
+		printOrdersTable(*&orderMap)
+
+		var orderID string
+		fmt.Println("What's the order ID?")
+		fmt.Scanln(&orderID)
+		prompt := promptui.Prompt{
+			Label:     "Delete order?",
+			IsConfirm: true,
+		}
+
+		ok, err := prompt.Run()
+
+		if err != nil {
+			fmt.Printf("Prompt failed %v\n", err)
+			return
+		}
+		if ok == "true" {
+			deletelOrder(orderID)
+		}
+		os.Exit(0)
+	}
+
 	var vMap = make(valuesMap)
 
 	for {
@@ -543,5 +593,32 @@ func main() {
 
 		time.Sleep(time.Duration(frequency) * time.Second)
 		fmt.Println()
+
+	}
+
+}
+
+func createOrder(pair goex.CurrencyPair, amount string, price string, orderType string) {
+	if orderType == "LimitBuy" {
+		_, err := apiGoex.LimitBuy(amount, price, pair)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+	var orderMap = make(openOrdersMap)
+	orderMap.getOpenOrders(pair.CurrencyB)
+	printOrdersTable(*&orderMap)
+}
+
+func deletelOrder(oderid string) {
+
+	deleted, err := apiGoex.CancelOrder(oderid, goex.BTC_JPY) // currencypair is not needed by kraken api
+	if err != nil {
+		fmt.Println(err)
+	}
+	if deleted {
+		fmt.Printf("Cancellation successful.")
+	} else {
+		fmt.Printf("Cancellation failed.")
 	}
 }
