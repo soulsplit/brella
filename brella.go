@@ -418,7 +418,9 @@ func main() {
 	generatCliArgs(&currency, &frequency, &statsFileLocation, &once, &dontWriteLog, &showOrderMap, &dontShowHoldingsMap, &newOrder, &cancelOrder)
 
 	var fiat = goex.Currency{Symbol: currency, Desc: ""}
-
+	// tradeCurr := goex.CurrencyPair{CurrencyA: goex.Currency{Symbol: "ADA", Desc: ""}, CurrencyB: fiat}
+	// autoTrade(tradeCurr, 10, 50, "3")
+	// os.Exit(0)
 	if newOrder {
 		prompt := promptui.Select{
 			Label: "What's the type of order?",
@@ -451,7 +453,8 @@ func main() {
 
 		pair := assetStringToCurrencyObject(currPair)
 
-		createOrder(pair, amount, price, orderType)
+		order := createOrder(pair, amount, price, orderType)
+		fmt.Printf("Created order: %s", order.OrderID2)
 		os.Exit(0)
 	}
 

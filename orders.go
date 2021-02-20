@@ -64,9 +64,16 @@ func (odMap openOrdersMap) storeOrders(order goex.Order) {
 }
 
 // create a new order
-func createOrder(pair goex.CurrencyPair, amount string, price string, orderType string) {
+func createOrder(pair goex.CurrencyPair, amount string, price string, orderType string) *goex.Order {
+	order := new(goex.Order)
+	var err error
 	if orderType == "LimitBuy" {
-		_, err := apiGoex.LimitBuy(amount, price, pair)
+		order, err = apiGoex.LimitBuy(amount, price, pair)
+		if err != nil {
+			fmt.Println(err)
+		}
+	} else if orderType == "LimitSell" {
+		order, err = apiGoex.LimitSell(amount, price, pair)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -74,6 +81,7 @@ func createOrder(pair goex.CurrencyPair, amount string, price string, orderType 
 	var orderMap = make(openOrdersMap)
 	orderMap.getOpenOrders(pair.CurrencyB)
 	printOrdersTable(*&orderMap)
+	return order
 }
 
 // delete an existing order
