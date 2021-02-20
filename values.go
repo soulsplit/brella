@@ -1,5 +1,6 @@
 package main
 
+// main map to store all the users' holdings
 type values map[string]float64
 
 // map currency to a list of values

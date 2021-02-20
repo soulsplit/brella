@@ -19,22 +19,29 @@ import (
 	"github.com/soulsplit/goex/builder"
 )
 
+// The main api handler with access to private data
 var apiGoex goex.API = getAPIHandle()
 
+// All the tradeable currencies as a list of currecy pairs
 var krakenAssets = getAllAssets()
 
+// A helper to to have a two dimensional string array
 type matrix [][]string
 
+// Structure to set the credentials
 type credentials struct {
 	APIKey        string ""
 	APISecretkey  string ""
 	APIPassphrase string ""
 }
+
+// Structure to hold historic data
 type history struct {
 	currName string ""
 	value    []float64
 }
 
+// Structure to assemble holdings that will offer data for all the assets in the users' account
 type dataItem struct {
 	currName         string
 	price            float64
@@ -44,6 +51,7 @@ type dataItem struct {
 	changeSinceLast  string
 }
 
+// Convert the data of the holdings to strings to allow easy addition to a table
 func (exData *exchangeData) toRows() [][]string {
 	var formatted [][]string
 	for _, item := range exData.items {
@@ -59,6 +67,7 @@ func (exData *exchangeData) toRows() [][]string {
 	return formatted
 }
 
+// Structure to keep the users' holdings
 type exchangeData struct {
 	items    []dataItem
 	exchange string
@@ -123,7 +132,6 @@ func (exData *exchangeData) extractHoldings(acc goex.Account, fiat goex.Currency
 
 // printHoldingsTable() creates a nice looking table that will have data of the user's balance as well as extra calculation
 func printHoldingsTable(fiat goex.Currency, exData exchangeData) {
-	// sort.Sort(matrix(exData.items))
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{
 		"Name",
@@ -370,6 +378,7 @@ func writeStats(ts string, vmap valuesMap, statsFileLocation string) {
 	defer statsFile.Close()
 }
 
+// Helper to organize the input parameters to this application
 func generatCliArgs(currency *string, frequency *int, statsFileLocation *string, once *bool, dontWriteLog *bool, showOrderMap *bool, dontShowHoldingsMap *bool, newOrder *bool, cancelOrder *bool) {
 	var version bool
 
@@ -392,6 +401,7 @@ func generatCliArgs(currency *string, frequency *int, statsFileLocation *string,
 	}
 }
 
+// main function to allow user interactions
 func main() {
 
 	// will be filled with cli parameter
@@ -508,7 +518,6 @@ func main() {
 
 		time.Sleep(time.Duration(frequency) * time.Second)
 		fmt.Println()
-
 	}
 
 }

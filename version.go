@@ -2,10 +2,10 @@ package main
 
 import "fmt"
 
-// Version is set
+// Version is set here
 const Version string = "0.0.2"
 
-// Print current version
+// Get the current version
 func getVersion() {
 	fmt.Println(Version)
 }

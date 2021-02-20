@@ -11,6 +11,7 @@ import (
 // map currency to a list of open orders
 type openOrdersMap map[string][]openOrders
 
+// main structure to store all the users' orders
 type openOrders struct {
 	currency  string
 	value     float64
@@ -19,6 +20,7 @@ type openOrders struct {
 	orderType goex.OrderType
 }
 
+// retrieve all the users' open orders
 func (odMap openOrdersMap) getOpenOrders(fiat goex.Currency) {
 	// the currencyPair passed here is not evaluated for kraken. This call will get all open orders.
 	openOrders, _ := apiGoex.GetUnfinishOrders(getPair("BTC", fiat))
@@ -27,6 +29,7 @@ func (odMap openOrdersMap) getOpenOrders(fiat goex.Currency) {
 	}
 }
 
+// Convert the data of the orders to strings to allow easy addition to a table
 func (odMap *openOrdersMap) toRows() [][]string {
 	var formatted [][]string
 	for _, orders := range *odMap {
@@ -60,6 +63,7 @@ func (odMap openOrdersMap) storeOrders(order goex.Order) {
 	}
 }
 
+// create a new order
 func createOrder(pair goex.CurrencyPair, amount string, price string, orderType string) {
 	if orderType == "LimitBuy" {
 		_, err := apiGoex.LimitBuy(amount, price, pair)
@@ -72,6 +76,7 @@ func createOrder(pair goex.CurrencyPair, amount string, price string, orderType 
 	printOrdersTable(*&orderMap)
 }
 
+// delete an existing order
 func deletelOrder(oderid string) {
 
 	deleted, err := apiGoex.CancelOrder(oderid, goex.BTC_JPY) // currencypair is not needed by kraken api
