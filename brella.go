@@ -21,6 +21,8 @@ import (
 
 var apiGoex goex.API = getAPIHandle()
 
+var krakenAssets = getAllAssets()
+
 type matrix [][]string
 
 type credentials struct {
@@ -31,22 +33,6 @@ type credentials struct {
 type history struct {
 	currName string ""
 	value    []float64
-}
-
-type values map[string]float64
-
-// map currency to a list of values
-type valuesMap map[string][]float64
-
-// map currency to a list of open orders
-type openOrdersMap map[string][]openOrders
-
-type openOrders struct {
-	currency  string
-	value     float64
-	orderID   string
-	amount    float64
-	orderType goex.OrderType
 }
 
 type dataItem struct {
@@ -68,22 +54,6 @@ func (exData *exchangeData) toRows() [][]string {
 			strconv.FormatFloat(item.value, 'f', 2, 64),
 			item.changeSinceStart,
 			item.changeSinceLast})
-	}
-	sort.Sort(matrix(formatted))
-	return formatted
-}
-
-func (odMap *openOrdersMap) toRows() [][]string {
-	var formatted [][]string
-	for _, orders := range *odMap {
-		for _, item := range orders {
-			formatted = append(formatted, []string{
-				item.currency,
-				strconv.FormatFloat(item.amount, 'f', 4, 64),
-				strconv.FormatFloat(item.value, 'f', 2, 64),
-				strconv.FormatFloat(item.value*item.amount, 'f', 2, 64),
-				item.orderID})
-		}
 	}
 	sort.Sort(matrix(formatted))
 	return formatted
@@ -111,14 +81,6 @@ func (s matrix) Less(i, j int) bool {
 	return s[i][0] < s[j][0]
 }
 
-// Version is set
-const Version string = "0.0.2"
-
-// Print current version
-func getVersion() {
-	fmt.Println(Version)
-}
-
 // Cleans up the names that come from exchange APIs to make them conform, for example with ticker requests
 func estimateName(name string) string {
 
@@ -134,14 +96,6 @@ func estimateName(name string) string {
 	}
 
 	return newName
-}
-
-func (odMap openOrdersMap) getOpenOrders(fiat goex.Currency) {
-	// the currencyPair passed here is not evaluated for kraken. This call will get all open orders.
-	openOrders, _ := apiGoex.GetUnfinishOrders(getPair("BTC", fiat))
-	for _, order := range openOrders {
-		odMap.storeOrders(order)
-	}
 }
 
 // extractHoldings() will pick out various parts of the user's balance data write a human-readable string
@@ -332,51 +286,6 @@ func colorize(color string, content string) []string {
 	return []string{setting, content, string(colorReset)}
 }
 
-// add data to the map that holds all values from the current session
-func (vMap valuesMap) storeValues(currName string, value float64) {
-	_, ok := vMap[currName]
-	if !ok {
-		vMap[currName] = []float64{value}
-	} else {
-		vMap[currName] = append(vMap[currName], value)
-	}
-}
-
-// add data to the map that holds all values from the current session
-func (odMap openOrdersMap) storeOrders(order goex.Order) {
-	currName := order.Currency.String()
-	_, ok := odMap[currName]
-	var orderSummary openOrders
-	orderSummary.amount = order.Amount
-	orderSummary.orderID = order.OrderID2
-	orderSummary.currency = order.Currency.String()
-	orderSummary.value = order.Price
-
-	if !ok {
-		odMap[currName] = []openOrders{orderSummary}
-	} else {
-		odMap[currName] = append(odMap[currName], orderSummary)
-	}
-}
-
-// extract only the last price that was recorded already of a given cryptocurrency
-func getLastValue(currName string, vMap valuesMap) float64 {
-	_, ok := vMap[currName]
-	if ok {
-		return vMap[currName][len(vMap[currName])-1]
-	}
-	return 0
-}
-
-// extract all the prices that were recorded already of a given cryptocurrency
-func getValues(currName string, vMap valuesMap) []float64 {
-	_, ok := vMap[currName]
-	if ok {
-		return vMap[currName]
-	}
-	return []float64{0.0}
-}
-
 // read credentials to access the exchange api from disk
 func getCredentials() credentials {
 	var creds credentials
@@ -507,27 +416,31 @@ func main() {
 		}
 		_, orderType, err := prompt.Run()
 
-		if err != nil {
-			fmt.Printf("Prompt failed %v\n", err)
-			return
+		checkPrompt(err)
+
+		prompt = promptui.Select{
+			Label: "What's the pair to trade?",
+			Items: getAllAssetsString(),
 		}
+		_, currPair, err := prompt.Run()
+		checkPrompt(err)
 
-		var firstCurr string
-		var secondCurr string
-		var amount string
-		var price string
-		fmt.Println("Which currency to buy?")
-		fmt.Scanln(&firstCurr)
-		fmt.Println("Which currency to spent?")
-		fmt.Scanln(&secondCurr)
-		fmt.Println("What amount?")
-		fmt.Scanln(&amount)
-		fmt.Println("At which price?")
-		fmt.Scanln(&price)
+		promptAmount := promptui.Prompt{
+			Label:    "What amount?",
+			Validate: nil,
+		}
+		amount, err := promptAmount.Run()
+		checkPrompt(err)
 
-		curr1 := goex.Currency{Symbol: firstCurr}
-		curr2 := goex.Currency{Symbol: secondCurr}
-		pair := goex.CurrencyPair{CurrencyA: curr1, CurrencyB: curr2}
+		promptPrice := promptui.Prompt{
+			Label:    "At which price?",
+			Validate: nil,
+		}
+		price, err := promptPrice.Run()
+		checkPrompt(err)
+
+		pair := assetStringToCurrencyObject(currPair)
+
 		createOrder(pair, amount, price, orderType)
 		os.Exit(0)
 	}
@@ -537,22 +450,24 @@ func main() {
 		orderMap.getOpenOrders(fiat)
 		printOrdersTable(*&orderMap)
 
-		var orderID string
-		fmt.Println("What's the order ID?")
-		fmt.Scanln(&orderID)
+		promptOrder := promptui.Prompt{
+			Label:    "What's the order ID to be deleted?",
+			Validate: nil,
+		}
+		orderID, err := promptOrder.Run()
+		checkPrompt(err)
+
 		prompt := promptui.Prompt{
 			Label:     "Delete order?",
 			IsConfirm: true,
 		}
-
 		ok, err := prompt.Run()
+		checkPrompt(err)
 
-		if err != nil {
-			fmt.Printf("Prompt failed %v\n", err)
-			return
-		}
-		if ok == "true" {
+		if ok == "y" {
 			deletelOrder(orderID)
+		} else {
+			fmt.Println("Aborted.")
 		}
 		os.Exit(0)
 	}
@@ -596,29 +511,4 @@ func main() {
 
 	}
 
-}
-
-func createOrder(pair goex.CurrencyPair, amount string, price string, orderType string) {
-	if orderType == "LimitBuy" {
-		_, err := apiGoex.LimitBuy(amount, price, pair)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}
-	var orderMap = make(openOrdersMap)
-	orderMap.getOpenOrders(pair.CurrencyB)
-	printOrdersTable(*&orderMap)
-}
-
-func deletelOrder(oderid string) {
-
-	deleted, err := apiGoex.CancelOrder(oderid, goex.BTC_JPY) // currencypair is not needed by kraken api
-	if err != nil {
-		fmt.Println(err)
-	}
-	if deleted {
-		fmt.Printf("Cancellation successful.")
-	} else {
-		fmt.Printf("Cancellation failed.")
-	}
 }

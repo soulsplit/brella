@@ -17,3 +17,10 @@ func retryOnError(err error) {
 		}
 	}
 }
+
+func checkPrompt(err error) {
+	if err != nil {
+		fmt.Printf("Prompt failed %v\n", err)
+		os.Exit(1)
+	}
+}
