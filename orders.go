@@ -80,7 +80,7 @@ func createOrder(pair goex.CurrencyPair, amount string, price string, orderType 
 	}
 	var orderMap = make(openOrdersMap)
 	orderMap.getOpenOrders(pair.CurrencyB)
-	printOrdersTable(*&orderMap)
+	printOrdersTable(orderMap)
 	return order
 }
 

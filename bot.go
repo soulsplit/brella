@@ -40,7 +40,7 @@ func autoTrade(pair goex.CurrencyPair, buyPercent float64, sellPercent float64, 
 	var fiat = goex.Currency{Symbol: "EUR", Desc: ""}
 	var orderMap = make(openOrdersMap)
 	orderMap.getOpenOrders(fiat)
-	printOrdersTable(*&orderMap)
+	printOrdersTable(orderMap)
 
 	// if the buy order was fill, set the sell order
 	orderSell := createOrder(pair, amount, fmt.Sprintf("%f", targetSellPrice), "LimitSell")
@@ -74,6 +74,6 @@ func monitorTrade(order *goex.Order) {
 		time.Sleep(time.Duration(60) * time.Second)
 		monitorTrade(order)
 	} else {
-		fmt.Printf("Order filled yet: %s\n", order.OrderID2)
+		fmt.Printf("Order filled: %s\n", order.OrderID2)
 	}
 }

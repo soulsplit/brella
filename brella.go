@@ -61,7 +61,8 @@ func (exData *exchangeData) toRows() [][]string {
 			strconv.FormatFloat(item.price, 'f', 2, 64),
 			strconv.FormatFloat(item.value, 'f', 2, 64),
 			item.changeSinceStart,
-			item.changeSinceLast})
+			item.changeSinceLast,
+		})
 	}
 	sort.Sort(matrix(formatted))
 	return formatted
@@ -212,7 +213,7 @@ func getPair(currName string, fiat goex.Currency) goex.CurrencyPair {
 	return pair
 }
 
-// addHoldings() will extend the data take from the balance with a new record
+// addHoldings() will extend the data taken from the balance with a new record
 func (exData *exchangeData) addHoldings(currName string, amount float64, price interface{}, value float64, vMap valuesMap) {
 	var priceF float64
 	var changeSinceLast []string
@@ -330,6 +331,7 @@ func writeStats(ts string, vmap valuesMap, statsFileLocation string) {
 
 	_, err := os.Stat(statsFileLocation)
 	statsFile, _ := os.OpenFile(statsFileLocation, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	defer statsFile.Close()
 
 	var line []string
 	var header []string
@@ -375,7 +377,6 @@ func writeStats(ts string, vmap valuesMap, statsFileLocation string) {
 	}
 	writer.Write(line)
 	writer.Flush()
-	defer statsFile.Close()
 }
 
 // Helper to organize the input parameters to this application
@@ -461,7 +462,7 @@ func main() {
 	if cancelOrder {
 		var orderMap = make(openOrdersMap)
 		orderMap.getOpenOrders(fiat)
-		printOrdersTable(*&orderMap)
+		printOrdersTable(orderMap)
 
 		promptOrder := promptui.Prompt{
 			Label:    "What's the order ID to be deleted?",
@@ -488,7 +489,7 @@ func main() {
 	var vMap = make(valuesMap)
 
 	for {
-		log.Println(fmt.Sprintf("Getting new data from %s", apiGoex.GetExchangeName()))
+		log.Printf("Getting new data from %s", apiGoex.GetExchangeName())
 		acc, err := apiGoex.GetAccount()
 		retryOnError(err)
 
@@ -508,14 +509,14 @@ func main() {
 		if showOrderMap {
 			var orderMap = make(openOrdersMap)
 			orderMap.getOpenOrders(fiat)
-			printOrdersTable(*&orderMap)
+			printOrdersTable(orderMap)
 		}
 		if once {
 			break
 		}
 
 		if frequency < 60 {
-			log.Println(fmt.Sprintf("Frequency is too low. It will be set to 60seconds."))
+			log.Printf("Frequency is too low. It will be set to 60seconds.")
 			frequency = 60
 		}
 
